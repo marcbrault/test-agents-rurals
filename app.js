@@ -487,7 +487,7 @@ document.addEventListener("keydown", e => {
   if ("serviceWorker" in navigator && location.protocol === "https:") {
     navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then(r => r.update()).catch(() => {});
     // quan s'activa una versió nova de l'app, es recarrega sola un cop
-    let reloaded = false;
+    let reloaded = !navigator.serviceWorker.controller;   // la primera visita no cal recarregar
     navigator.serviceWorker.addEventListener("controllerchange", () => { if (!reloaded && !(quiz && !quiz.done && view.name === "quiz")) { reloaded = true; location.reload(); } });
   }
 })();
