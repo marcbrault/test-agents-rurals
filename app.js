@@ -13,6 +13,26 @@ let view = { name: "home" };
 let quiz = null;        // sessió en curs
 let timerId = null;
 
+/* ---------------- Instal·lació com a app ---------------- */
+let installEvt = null, showHowTo = false;
+const isStandalone = () => matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); installEvt = e; if (DB && view.name === "home") render(); });
+window.addEventListener("appinstalled", () => { installEvt = null; showHowTo = false; if (DB && view.name === "home") render(); });
+
+function installBlock() {
+  if (isStandalone()) return "";
+  const ios = isIOS();
+  const steps = ios
+    ? `<ol><li>Comprova que l'has obert amb <b>Safari</b>.</li><li>Toca el botó de <b>compartir</b> <span aria-hidden="true">(el quadrat amb la fletxa cap amunt)</span>, a la barra de baix.</li><li>Baixa i toca <b>Afegir a la pantalla d'inici</b>, i després <b>Afegir</b>.</li></ol>`
+    : `<ol><li>Toca el menú <b>⋮</b> del navegador (a dalt a la dreta).</li><li>Toca <b>Instal·lar app</b> o <b>Afegir a la pantalla d'inici</b>.</li><li>Confirma amb <b>Instal·lar</b>.</li></ol>`;
+  return `<section class="install">
+    <div class="install-row"><div><h3>Instal·la-la al mòbil</h3><p>Tindràs la icona a la pantalla d'inici i funcionarà sense connexió.</p></div>
+    <button class="btn" data-act="install">Instal·lar l'app</button></div>
+    ${showHowTo ? `<div class="howto">${steps}</div>` : ""}
+  </section>`;
+}
+
 /* ---------------- Persistència ---------------- */
 function blank() { return { q: {}, err: [], exams: [], sel: [], cfg: { n: 20, filtre: "tot" } }; }
 function load() {
@@ -152,6 +172,7 @@ function vHome() {
       <button class="mode" data-act="errors" ${S.err.length ? "" : "disabled"}><h3>Repassar errors</h3><p>${S.err.length ? "Cada pregunta surt de la llista quan l'encertes dues vegades seguides" : "Aquí apareixeran les preguntes que fallis"}</p><span class="side">${S.err.length}</span></button>
       <button class="mode" data-go="stats"><h3>Estadístiques</h3><p>Domini per tema i historial de simulacres</p><span class="side">${S.exams.length}</span></button>
     </div>
+    ${installBlock()}
     <div class="note">Les preguntes s'han redactat a partir de la <em>Guia d'estudi</em> (edició de desembre de 2023). Les dades de temporades de caça i pesca, xifres i noms de departaments poden haver canviat: contrasta-les amb la normativa vigent.</div>
     <footer class="foot">Nota del simulacre: Q = (A − E/4) × 22 / 80. Per aprovar el primer exercici cal un 11.
       <br><button class="linkbtn" data-act="theme">Canviar tema clar/fosc</button></footer>
@@ -414,6 +435,10 @@ function act(a) {
       }
       finish(); break;
     }
+    case "install":
+      if (installEvt) { installEvt.prompt(); installEvt.userChoice.then(() => { installEvt = null; render(); }); }
+      else { showHowTo = !showHowTo; render(); }
+      break;
     case "theme": {
       const cur = document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
       const nxt = cur === "dark" ? "light" : "dark";

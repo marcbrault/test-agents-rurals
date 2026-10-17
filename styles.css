@@ -261,3 +261,12 @@ footer.foot button { font-size: .82rem; }
 .dtag { padding: 1px 8px; border-radius: 999px; font-size: .78rem; font-weight: 700; background: var(--och-bg); color: var(--och-ink); }
 .dtag.d3 { background: var(--och-3); color: #fff; }
 .dif-theme .qnav .btn { background: var(--och-3); color: #fff; }
+
+/* ---------- Instal·lació ---------- */
+.install { margin-top: 16px; border: 1.5px solid var(--pine-2); border-radius: var(--radius-m); padding: 16px 18px; background: var(--surface); }
+.install-row { display: flex; gap: 14px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.install-row > div { flex: 1 1 200px; }
+.install p { margin: 2px 0 0; color: var(--muted); font-size: .93rem; }
+.install .btn { flex: 0 0 auto; }
+.howto { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.howto ol { margin: 0; padding-left: 1.3em; display: grid; gap: 6px; }
