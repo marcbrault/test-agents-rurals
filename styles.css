@@ -227,3 +227,37 @@ footer.foot { margin-top: 40px; font-size: .82rem; color: var(--muted); }
 footer.foot button { font-size: .82rem; }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* ---------- Secció per dificultat (to ocre, com la fusta i el sotabosc) ---------- */
+:root { --och-1: #E9C77B; --och-2: #C98A2B; --och-3: #8C4A12; --och-bg: #F4E6C8; --och-ink: #3E2508; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --och-1: #E2BE6E; --och-2: #D4953A; --och-3: #E07B3A; --och-bg: #2E2210; --och-ink: #F5E3BE; } }
+:root[data-theme="dark"] { --och-1: #E2BE6E; --och-2: #D4953A; --och-3: #E07B3A; --och-bg: #2E2210; --och-ink: #F5E3BE; }
+
+.mode.dif { background: var(--och-bg); border-color: var(--och-2); color: var(--och-ink); }
+.mode.dif p { color: inherit; opacity: .8; }
+.mode.dif .side { color: var(--och-2); font-size: 1rem; letter-spacing: .15em; }
+
+.difpage .seg button[aria-pressed="true"] { background: var(--och-3); border-color: var(--och-3); color: #fff; }
+.levels { display: grid; gap: 10px; margin-top: 8px; }
+.level {
+  display: grid; grid-template-columns: auto 1fr; gap: 2px 14px; align-items: start;
+  width: 100%; text-align: left; cursor: pointer; color: var(--och-ink);
+  background: var(--och-bg); border: 1px solid transparent; border-left: 6px solid var(--och-2);
+  border-radius: var(--radius-m); padding: 16px 18px;
+}
+.level:hover { border-color: var(--och-2); }
+.level .dots { grid-row: 1 / span 3; font-size: .95rem; letter-spacing: .1em; color: var(--och-2); padding-top: 3px; }
+.level h3 { font-size: 1.2rem; }
+.level p { margin: 0; opacity: .85; font-size: .93rem; }
+.level .lstat { font-size: .82rem; opacity: .7; margin-top: 4px; }
+.level.l1 { border-left-color: var(--och-1); } .level.l1 .dots { color: var(--och-1); }
+.level.l2 { border-left-color: var(--och-2); }
+.level.l3 { border-left-color: var(--och-3); } .level.l3 .dots { color: var(--och-3); }
+.level.l0 { background: transparent; border: 1px dashed var(--och-2); border-left: 6px solid var(--och-2); }
+
+.dif-theme .progress i { background: var(--och-2); }
+.dif-theme .bar { border-bottom-color: var(--och-2); }
+.dif-theme .bar .title { color: var(--och-3); }
+.dtag { padding: 1px 8px; border-radius: 999px; font-size: .78rem; font-weight: 700; background: var(--och-bg); color: var(--och-ink); }
+.dtag.d3 { background: var(--och-3); color: #fff; }
+.dif-theme .qnav .btn { background: var(--och-3); color: #fff; }

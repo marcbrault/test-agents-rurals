@@ -81,6 +81,25 @@ function buildPractice(temes, n, filtre) {
   return { mode: "practice", title, items: shuffle(take).map(makeItem), i: 0, start: Date.now(), done: false };
 }
 
+const NIVELLS = [
+  { d: 1, nom: "Bàsica", desc: "Conceptes clau i dades que surten a tots els exàmens" },
+  { d: 2, nom: "Mitjana", desc: "Articles, terminis, òrgans competents i classificacions" },
+  { d: 3, nom: "Difícil", desc: "Detalls fins, xifres concretes i excepcions" },
+  { d: 0, nom: "Barrejades", desc: "Totes les dificultats juntes, a l'atzar" }
+];
+function buildDif(d, n) {
+  let pool = DB.preguntes.filter(q => !d || q.d === d);
+  pool = shuffle(pool).sort((a, b) => ((S.q[a.id] || [0])[0]) - ((S.q[b.id] || [0])[0]));
+  const take = n === "tot" ? pool : pool.slice(0, n);
+  const nv = NIVELLS.find(x => x.d === d);
+  return { mode: "practice", dif: d, title: "Dificultat " + nv.nom.toLowerCase(), items: shuffle(take).map(makeItem), i: 0, start: Date.now(), done: false };
+}
+function difStats(d) {
+  const qs = DB.preguntes.filter(q => !d || q.d === d); let seen = 0, ok = 0, tot = 0;
+  qs.forEach(q => { const r = S.q[q.id]; if (r) { seen++; ok += r[1]; tot += r[0]; } });
+  return { n: qs.length, seen, acc: pct(ok, tot) };
+}
+
 function buildErrors() {
   const items = shuffle(S.err.filter(id => BYID[id])).map(id => makeItem(BYID[id]));
   return { mode: "errors", title: "Repàs d'errors", items, i: 0, start: Date.now(), done: false };
@@ -101,7 +120,7 @@ function startQuiz(q) {
 /* ---------------- Vistes ---------------- */
 function render() {
   const app = $("#app");
-  const v = { home: vHome, oficials: vOficials, temes: vTemes, quiz: vQuiz, result: vResult, stats: vStats }[view.name];
+  const v = { home: vHome, dif: vDif, oficials: vOficials, temes: vTemes, quiz: vQuiz, result: vResult, stats: vStats }[view.name];
   app.innerHTML = v();
   bind(app);
   if (view.name === "quiz" && quiz.mode === "exam" && !timerId) timerId = setInterval(tick, 1000);
@@ -128,6 +147,7 @@ function vHome() {
       ${pending ? `<button class="mode primary" data-act="resume"><h3>Continuar el simulacre</h3><p>Pregunta ${pending.i + 1} de ${pending.items.length} · queden ${clock(pending.limit - (Date.now() - pending.start) / 1000)}</p><span class="side">▶</span></button>` : ""}
       <button class="mode ${pending ? "" : "primary"}" data-act="exam"><h3>Simulacre d'examen</h3><p>80 preguntes · 1 h 45 min · cada error resta ¼</p><span class="side">${last ? `${fmt(last.nota)}<small>última nota</small>` : ""}</span></button>
       ${OF.length ? `<button class="mode" data-go="oficials"><h3>Exàmens oficials</h3><p>Preguntes reals de convocatòries anteriors, amb la plantilla oficial</p><span class="side">${OF.length}</span></button>` : ""}
+      <button class="mode dif" data-go="dif"><h3>Preguntes per dificultat</h3><p>Barreja de tots els temes, del nivell que triïs</p><span class="side">${"●".repeat(3)}</span></button>
       <button class="mode" data-go="temes"><h3>Practicar per temes</h3><p>Tria temes i veu la resposta correcta a l'instant</p><span class="side">${pct(seen, total)}%</span></button>
       <button class="mode" data-act="errors" ${S.err.length ? "" : "disabled"}><h3>Repassar errors</h3><p>${S.err.length ? "Cada pregunta surt de la llista quan l'encertes dues vegades seguides" : "Aquí apareixeran les preguntes que fallis"}</p><span class="side">${S.err.length}</span></button>
       <button class="mode" data-go="stats"><h3>Estadístiques</h3><p>Domini per tema i historial de simulacres</p><span class="side">${S.exams.length}</span></button>
@@ -149,6 +169,21 @@ function vOficials() {
     <p class="muted" style="margin-top:20px">Són els qüestionaris reals, en l'ordre original i amb la correcció de la plantilla oficial. Es puntuen igual que el simulacre: sobre 22, i cada error resta ¼.</p>
     <div class="modes" style="margin-top:16px">${list}</div>
     <div class="note">Aquests exàmens són del 2020. Algunes preguntes es basen en normativa que després ha canviat (per exemple, l'estructura dels departaments). L'explicació de cada pregunta ho indica quan és el cas.</div>
+  </main>`;
+}
+
+function vDif() {
+  const cards = NIVELLS.map(nv => { const st = difStats(nv.d); return `
+    <button class="level l${nv.d}" data-dif="${nv.d}">
+      <span class="dots" aria-hidden="true">${nv.d ? "●".repeat(nv.d) + "○".repeat(3 - nv.d) : "●◐○"}</span>
+      <h3>${nv.nom}</h3><p>${nv.desc}</p>
+      <span class="lstat">${st.n} preguntes · ${st.seen ? `${st.acc}% d'encert` : "cap de vista"}</span>
+    </button>`; }).join("");
+  return `${bar("Per dificultat")}<main class="wrap difpage">
+    <p class="muted" style="margin-top:20px">Les preguntes surten a l'atzar de tots els temes, començant per les que has vist menys. Veuràs la correcció a l'instant.</p>
+    <div class="field"><span>Nombre de preguntes</span><div class="seg" data-cfg="n">
+      ${[10, 20, 40, "tot"].map(x => `<button data-v="${x}" aria-pressed="${S.cfg.n == x}">${x === "tot" ? "Totes" : x}</button>`).join("")}</div></div>
+    <div class="levels">${cards}</div>
   </main>`;
 }
 
@@ -208,13 +243,13 @@ function vQuiz() {
   } else {
     nav = reveal ? `<div class="qnav">${last ? `<button class="btn" data-act="finish">Veure resultat</button>` : `<button class="btn" data-act="next">Següent</button>`}</div>` : "";
   }
-  return `${bar(quiz.title, right)}<div class="progress"><i style="width:${pct(exam ? done : quiz.i + (answered ? 1 : 0), quiz.items.length)}%"></i></div>
+  return `${quiz.dif !== undefined ? '<div class="dif-theme">' : "<div>"}${bar(quiz.title, right)}<div class="progress"><i style="width:${pct(exam ? done : quiz.i + (answered ? 1 : 0), quiz.items.length)}%"></i></div>
   <main class="wrap">
-    <p class="q-meta">${exam ? `Pregunta ${quiz.i + 1} de ${quiz.items.length}` : `${temaLabel(q.t)} · ${esc(temaNom(q.t))}`}</p>
+    <p class="q-meta">${exam ? `Pregunta ${quiz.i + 1} de ${quiz.items.length}` : `${temaLabel(q.t)} · ${esc(temaNom(q.t))}${quiz.dif !== undefined && q.d ? ` · <span class="dtag d${q.d}">${NIVELLS[q.d - 1].nom}</span>` : ""}`}</p>
     <p class="q-text">${esc(q.p)}</p>
     <ol class="opts">${opts}</ol>
     ${explain}${nav}
-  </main>`;
+  </main></div>`;
 }
 
 function remaining() { return quiz.limit - (Date.now() - quiz.start) / 1000; }
@@ -334,6 +369,7 @@ function bind(root) {
     if (loadQuiz() && !confirm("Tens un simulacre a mitges. Vols descartar-lo i començar aquest examen?")) return;
     startQuiz(buildOfficial(OF.find(x => x.id === b.dataset.official)));
   });
+  root.querySelectorAll("[data-dif]").forEach(b => b.onclick = () => startQuiz(buildDif(+b.dataset.dif, S.cfg.n)));
   root.querySelectorAll("[data-practice]").forEach(b => b.onclick = () => startQuiz(buildPractice([b.dataset.practice], S.cfg.n, "tot")));
   root.querySelectorAll("[data-opt]").forEach(b => b.onclick = () => answer(+b.dataset.opt));
   root.querySelectorAll("[data-jump]").forEach(b => b.onclick = () => { quiz.i = +b.dataset.jump; saveQuiz(); render(); window.scrollTo(0, 0); });
@@ -359,13 +395,13 @@ function act(a) {
         const n = quiz.items.filter(x => x.a !== null).length;
         if (n && !confirm("Vols sortir? Les respostes ja contestades queden desades a les estadístiques.")) return;
       }
-      go(view.name === "result" || view.name === "quiz" ? (quiz && quiz.mode === "practice" ? "temes" : "home") : "home"); break;
+      go(view.name === "result" || view.name === "quiz" ? (quiz && quiz.mode === "practice" ? (quiz.dif !== undefined ? "dif" : "temes") : "home") : "home"); break;
     case "exam":
       if (loadQuiz() && !confirm("Tens un simulacre a mitges. Vols descartar-lo i començar-ne un de nou?")) return;
       startQuiz(buildExam()); break;
     case "resume": quiz = loadQuiz(); go("quiz"); break;
     case "practice": startQuiz(buildPractice(S.sel, S.cfg.n, S.cfg.filtre)); break;
-    case "again": startQuiz(buildPractice([...new Set(quiz.items.map(x => BYID[x.id].t))], quiz.items.length, "tot")); break;
+    case "again": if (quiz.dif !== undefined) { startQuiz(buildDif(quiz.dif, quiz.items.length)); break; } startQuiz(buildPractice([...new Set(quiz.items.map(x => BYID[x.id].t))], quiz.items.length, "tot")); break;
     case "errors": startQuiz(buildErrors()); break;
     case "next": quiz.i = Math.min(quiz.i + 1, quiz.items.length - 1); saveQuiz(); render(); window.scrollTo(0, 0); break;
     case "prev": quiz.i = Math.max(quiz.i - 1, 0); saveQuiz(); render(); window.scrollTo(0, 0); break;
