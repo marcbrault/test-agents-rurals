@@ -484,5 +484,10 @@ document.addEventListener("keydown", e => {
     if (!S.sel.length) S.sel = d.temes.map(t => t.id);
     render();
   }).catch(() => { $("#app").innerHTML = `<p class="loading">No s'han pogut carregar les preguntes. Comprova la connexió i torna-ho a provar.</p>`; });
-  if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js");
+  if ("serviceWorker" in navigator && location.protocol === "https:") {
+    navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then(r => r.update()).catch(() => {});
+    // quan s'activa una versió nova de l'app, es recarrega sola un cop
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => { if (!reloaded && !(quiz && !quiz.done && view.name === "quiz")) { reloaded = true; location.reload(); } });
+  }
 })();
