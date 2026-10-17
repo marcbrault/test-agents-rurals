@@ -6,6 +6,7 @@ const KEY = "ar-test-v1";
 const LETTERS = ["A", "B", "C", "D"];
 
 let DB = null;          // { temes, preguntes }
+let OF = [];            // exàmens oficials
 let BYID = {};
 let S = load();         // progrés desat
 let view = { name: "home" };
@@ -40,8 +41,8 @@ function shuffle(a) { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { co
 const fmt = n => n.toLocaleString("ca-ES", { maximumFractionDigits: 2 });
 const pct = (a, b) => b ? Math.round(100 * a / b) : 0;
 function clock(sec) { sec = Math.max(0, Math.round(sec)); const h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60; return (h ? h + ":" + String(m).padStart(2, "0") : m) + ":" + String(s).padStart(2, "0"); }
-function temaNom(t) { const x = DB.temes.find(z => z.id === t); return x ? x.nom : t; }
-function temaLabel(t) { return (t[0] === "G" ? "General " : "Específic ") + t.slice(1); }
+function temaNom(t) { if (t === "OF") return "Examen oficial"; const x = DB.temes.find(z => z.id === t); return x ? x.nom : t; }
+function temaLabel(t) { if (t === "OF") return "Examen oficial"; return (t[0] === "G" ? "General " : "Específic ") + t.slice(1); }
 
 function topicStats(tid) {
   const qs = DB.preguntes.filter(q => q.t === tid);
@@ -63,6 +64,10 @@ function buildExam() {
   shuffle(quotas).sort((a, b) => (b.exact - b.k) - (a.exact - a.k)).slice(0, rest).forEach(x => x.k++);
   quotas.forEach(x => pick.push(...shuffle(byT[x.t]).slice(0, x.k)));
   return { mode: "exam", title: "Simulacre d'examen", items: shuffle(pick).map(makeItem), i: 0, start: Date.now(), limit: EXAM.minutes * 60, done: false };
+}
+
+function buildOfficial(ex) {
+  return { mode: "exam", oficial: ex.id, title: ex.nom + " · " + ex.torn, items: ex.ordre.map(id => ({ id, ord: [0, 1, 2, 3], a: null, flag: false })), i: 0, start: Date.now(), limit: ex.min * 60, done: false };
 }
 
 function buildPractice(temes, n, filtre) {
@@ -96,7 +101,7 @@ function startQuiz(q) {
 /* ---------------- Vistes ---------------- */
 function render() {
   const app = $("#app");
-  const v = { home: vHome, temes: vTemes, quiz: vQuiz, result: vResult, stats: vStats }[view.name];
+  const v = { home: vHome, oficials: vOficials, temes: vTemes, quiz: vQuiz, result: vResult, stats: vStats }[view.name];
   app.innerHTML = v();
   bind(app);
   if (view.name === "quiz" && quiz.mode === "exam" && !timerId) timerId = setInterval(tick, 1000);
@@ -122,6 +127,7 @@ function vHome() {
     <div class="modes">
       ${pending ? `<button class="mode primary" data-act="resume"><h3>Continuar el simulacre</h3><p>Pregunta ${pending.i + 1} de ${pending.items.length} · queden ${clock(pending.limit - (Date.now() - pending.start) / 1000)}</p><span class="side">▶</span></button>` : ""}
       <button class="mode ${pending ? "" : "primary"}" data-act="exam"><h3>Simulacre d'examen</h3><p>80 preguntes · 1 h 45 min · cada error resta ¼</p><span class="side">${last ? `${fmt(last.nota)}<small>última nota</small>` : ""}</span></button>
+      ${OF.length ? `<button class="mode" data-go="oficials"><h3>Exàmens oficials</h3><p>Preguntes reals de convocatòries anteriors, amb la plantilla oficial</p><span class="side">${OF.length}</span></button>` : ""}
       <button class="mode" data-go="temes"><h3>Practicar per temes</h3><p>Tria temes i veu la resposta correcta a l'instant</p><span class="side">${pct(seen, total)}%</span></button>
       <button class="mode" data-act="errors" ${S.err.length ? "" : "disabled"}><h3>Repassar errors</h3><p>${S.err.length ? "Cada pregunta surt de la llista quan l'encertes dues vegades seguides" : "Aquí apareixeran les preguntes que fallis"}</p><span class="side">${S.err.length}</span></button>
       <button class="mode" data-go="stats"><h3>Estadístiques</h3><p>Domini per tema i historial de simulacres</p><span class="side">${S.exams.length}</span></button>
@@ -129,6 +135,20 @@ function vHome() {
     <div class="note">Les preguntes s'han redactat a partir de la <em>Guia d'estudi</em> (edició de desembre de 2023). Les dades de temporades de caça i pesca, xifres i noms de departaments poden haver canviat: contrasta-les amb la normativa vigent.</div>
     <footer class="foot">Nota del simulacre: Q = (A − E/4) × 22 / 80. Per aprovar el primer exercici cal un 11.
       <br><button class="linkbtn" data-act="theme">Canviar tema clar/fosc</button></footer>
+  </main>`;
+}
+
+function vOficials() {
+  const list = OF.map(ex => {
+    const done = S.exams.filter(e => e.of === ex.id), best = done.length ? Math.max(...done.map(e => e.nota)) : null;
+    return `<button class="mode" data-official="${ex.id}"><h3>${esc(ex.nom)} · ${esc(ex.torn)}</h3>
+      <p>${ex.ordre.length} preguntes · ${ex.min} min · ${done.length ? `fet ${done.length} ${done.length === 1 ? "vegada" : "vegades"}, millor nota ${fmt(best)}` : "encara no l'has fet"}</p>
+      <span class="side">${ex.any}</span></button>`;
+  }).join("");
+  return `${bar("Exàmens oficials")}<main class="wrap">
+    <p class="muted" style="margin-top:20px">Són els qüestionaris reals, en l'ordre original i amb la correcció de la plantilla oficial. Es puntuen igual que el simulacre: sobre 22, i cada error resta ¼.</p>
+    <div class="modes" style="margin-top:16px">${list}</div>
+    <div class="note">Aquests exàmens són del 2020. Algunes preguntes es basen en normativa que després ha canviat (per exemple, l'estructura dels departaments). L'explicació de cada pregunta ho indica quan és el cas.</div>
   </main>`;
 }
 
@@ -174,7 +194,7 @@ function vQuiz() {
     return `<li><button class="opt ${cls}" data-opt="${oi}" ${reveal ? "disabled" : ""}><span class="l">${LETTERS[k]}</span><span>${esc(q.o[oi])}</span></button></li>`;
   }).join("");
   const ok = it.a === q.c;
-  const explain = reveal ? `<div class="explain ${ok ? "" : "bad"}"><strong>${ok ? "Correcte" : "Incorrecte. La resposta és la " + LETTERS[it.ord.indexOf(q.c)]}</strong><p>${esc(q.e)}</p><p class="src">${temaLabel(q.t)} · ${esc(q.s)}</p></div>` : "";
+  const explain = reveal ? `<div class="explain ${ok ? "" : "bad"}"><strong>${ok ? "Correcte" : "Incorrecte. La resposta és la " + LETTERS[it.ord.indexOf(q.c)]}</strong>${q.e ? `<p>${esc(q.e)}</p>` : ""}<p class="src">${temaLabel(q.t)} · ${esc(q.s)}</p></div>` : "";
   const last = quiz.i === quiz.items.length - 1;
   let nav;
   if (exam) {
@@ -219,7 +239,7 @@ function finish() {
     quiz.items.forEach(it => { if (it.a !== null) record(it.id, it.a === BYID[it.id].c); });
     const nota = Math.max(0, (A - E / 4) * EXAM.max / quiz.items.length);
     quiz.nota = nota;
-    S.exams.push({ d: Date.now(), A, E, B, nota: Math.round(nota * 100) / 100, t: Math.round((quiz.end - quiz.start) / 1000) });
+    S.exams.push({ of: quiz.oficial || undefined, d: Date.now(), A, E, B, nota: Math.round(nota * 100) / 100, t: Math.round((quiz.end - quiz.start) / 1000) });
   }
   save(); saveQuiz();
   go("result");
@@ -235,12 +255,12 @@ function vResult() {
   const rev = wrong.map(({ it, k, q }) => `<div class="item"><p class="small muted">${exam ? "Pregunta " + (k + 1) + " · " : ""}${temaLabel(q.t)} · ${esc(q.s)}</p>
       <p><b>${esc(q.p)}</b></p>
       ${it.a !== null ? `<p class="ans-w">${esc(q.o[it.a])}</p>` : `<p class="muted">En blanc</p>`}
-      <p class="ans-r">✓ ${esc(q.o[q.c])}</p><p class="small">${esc(q.e)}</p></div>`).join("");
+      <p class="ans-r">✓ ${esc(q.o[q.c])}</p>${q.e ? `<p class="small">${esc(q.e)}</p>` : ""}</div>`).join("");
   return `${bar("Resultat")}<main class="wrap">
     <div class="score">${head}
       <div class="tally"><div class="a"><b>${A}</b>encerts</div><div class="e"><b>${E}</b>errors</div><div><b>${B}</b>en blanc</div></div></div>
     ${exam ? `<details class="sheet"><summary>Full de respostes</summary><div class="grid">${quiz.items.map((x, k) => { const q = BYID[x.id]; return `<button data-review="${k}" class="${x.a === null ? "" : x.a === q.c ? "r" : "w"}">${k + 1}</button>`; }).join("")}</div></details>` : ""}
-    <div class="actions"><button class="btn" data-act="${exam ? "exam" : "again"}">${exam ? "Fer un altre simulacre" : "Repetir amb preguntes noves"}</button>
+    <div class="actions">${quiz.oficial ? `<button class="btn" data-official="${quiz.oficial}">Repetir aquest examen</button>` : `<button class="btn" data-act="${exam ? "exam" : "again"}">${exam ? "Fer un altre simulacre" : "Repetir amb preguntes noves"}</button>`}
     ${S.err.length ? `<button class="btn ghost" data-act="errors">Repassar errors (${S.err.length})</button>` : ""}
     <button class="btn ghost" data-go="home">Inici</button></div>
     ${wrong.length ? `<h2>Preguntes a revisar (${wrong.length})</h2><div class="review">${rev}</div>` : `<p class="empty">Cap error. Molt bé!</p>`}
@@ -267,7 +287,7 @@ function vStats() {
     ${sorted.length ? `<div class="note"><b>Temes més fluixos:</b> ${sorted.map(x => `${x.t.id} (${x.st.acc}%)`).join(", ")}. Toca un tema de la llista per practicar-lo.</div>` : ""}
     ${ex.length ? `<h2>Evolució dels simulacres</h2>${chart(ex)}
     <table class="hist"><thead><tr><th>Data</th><th>Nota</th><th>A / E / B</th><th>Temps</th></tr></thead><tbody>
-    ${ex.slice().reverse().slice(0, 15).map(e => `<tr><td>${new Date(e.d).toLocaleDateString("ca-ES", { day: "numeric", month: "short" })}</td><td class="${e.nota >= EXAM.pass ? "pass" : "fail"}">${fmt(e.nota)}</td><td>${e.A} / ${e.E} / ${e.B}</td><td>${clock(e.t)}</td></tr>`).join("")}</tbody></table>` : ""}
+    ${ex.slice().reverse().slice(0, 15).map(e => `<tr><td>${new Date(e.d).toLocaleDateString("ca-ES", { day: "numeric", month: "short" })}${e.of ? `<br><span class="small muted">oficial ${e.of === "O20L" ? "2020 lliure" : "2020 PI"}</span>` : ""}</td><td class="${e.nota >= EXAM.pass ? "pass" : "fail"}">${fmt(e.nota)}</td><td>${e.A} / ${e.E} / ${e.B}</td><td>${clock(e.t)}</td></tr>`).join("")}</tbody></table>` : ""}
     <h2>Domini per tema</h2>
     <p class="muted small">Percentatge d'encert, preguntes vistes i barra de domini. Toca un tema per practicar-lo.</p>
     <div class="topics">${rows}</div>
@@ -310,12 +330,16 @@ function bind(root) {
     const k = b.parentElement.dataset.cfg, v = b.dataset.v;
     S.cfg[k] = k === "n" && v !== "tot" ? +v : v; save(); render();
   });
+  root.querySelectorAll("[data-official]").forEach(b => b.onclick = () => {
+    if (loadQuiz() && !confirm("Tens un simulacre a mitges. Vols descartar-lo i començar aquest examen?")) return;
+    startQuiz(buildOfficial(OF.find(x => x.id === b.dataset.official)));
+  });
   root.querySelectorAll("[data-practice]").forEach(b => b.onclick = () => startQuiz(buildPractice([b.dataset.practice], S.cfg.n, "tot")));
   root.querySelectorAll("[data-opt]").forEach(b => b.onclick = () => answer(+b.dataset.opt));
   root.querySelectorAll("[data-jump]").forEach(b => b.onclick = () => { quiz.i = +b.dataset.jump; saveQuiz(); render(); window.scrollTo(0, 0); });
   root.querySelectorAll("[data-review]").forEach(b => b.onclick = () => {
     const k = +b.dataset.review, it = quiz.items[k], q = BYID[it.id];
-    alert(`Pregunta ${k + 1}\n\n${q.p}\n\nLa teva resposta: ${it.a === null ? "en blanc" : q.o[it.a]}\nCorrecta: ${q.o[q.c]}\n\n${q.e}`);
+    alert(`Pregunta ${k + 1}\n\n${q.p}\n\nLa teva resposta: ${it.a === null ? "en blanc" : q.o[it.a]}\nCorrecta: ${q.o[q.c]}${q.e ? "\n\n" + q.e : ""}`);
   });
 }
 
@@ -390,8 +414,12 @@ document.addEventListener("keydown", e => {
 /* ---------------- Inici ---------------- */
 (function init() {
   try { const t = localStorage.getItem(KEY + "-theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
-  fetch("data/preguntes.json").then(r => r.json()).then(d => {
+  Promise.all([
+    fetch("data/preguntes.json").then(r => r.json()),
+    fetch("data/oficials.json").then(r => r.json()).catch(() => ({ examens: [] }))
+  ]).then(([d, of]) => {
     DB = d; d.preguntes.forEach(q => BYID[q.id] = q);
+    OF = of.examens || []; OF.forEach(ex => ex.preguntes.forEach(q => BYID[q.id] = q));
     if (!S.sel.length) S.sel = d.temes.map(t => t.id);
     render();
   }).catch(() => { $("#app").innerHTML = `<p class="loading">No s'han pogut carregar les preguntes. Comprova la connexió i torna-ho a provar.</p>`; });
