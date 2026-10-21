@@ -270,3 +270,5 @@ footer.foot button { font-size: .82rem; }
 .install .btn { flex: 0 0 auto; }
 .howto { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
 .howto ol { margin: 0; padding-left: 1.3em; display: grid; gap: 6px; }
+.topic .name small { display: block; color: var(--muted); font-size: .78rem; margin-top: 1px; }
+.oftag { padding: 1px 8px; border-radius: 999px; font-size: .78rem; font-weight: 700; background: var(--ink); color: var(--bg); }

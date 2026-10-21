@@ -3,7 +3,8 @@
 App web per preparar el **qüestionari de coneixements** (primer exercici de la primera prova) de l'accés a agent de l'escala bàsica del Cos d'Agents Rurals de la Generalitat de Catalunya.
 
 - **Simulacre d'examen**: 80 preguntes repartides per tots els temes, 1 h 45 min, cada error resta ¼. Nota sobre 22, s'aprova amb 11 (bases de la convocatòria, DOGC 16/10/2026).
-- **Practicar per temes**: tria temes i veu la correcció i l'explicació a l'instant.
+- **Exàmens oficials**: els qüestionaris reals de les convocatòries 01/20, 04/22, 01/23 i 01/24, amb la plantilla de correcció oficial.
+- **Practicar per temes**: tria temes i veu la correcció i l'explicació a l'instant; es pot filtrar entre preguntes oficials (reals) i generades.
 - **Repassar errors**: les preguntes fallades, fins que les encertes dues vegades seguides.
 - **Estadístiques**: domini per tema i evolució dels simulacres.
 

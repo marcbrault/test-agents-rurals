@@ -6,7 +6,10 @@ const KEY = "ar-test-v1";
 const LETTERS = ["A", "B", "C", "D"];
 
 let DB = null;          // { temes, preguntes }
-let OF = [];            // exàmens oficials
+let OF = [];            // exàmens oficials (entrades)
+let OFQ = [];           // preguntes oficials vàlides amb tema assignat
+let ALLQ = [];          // meves + oficials amb tema
+const CONV = { "20": "01/20", "22": "04/22", "23": "01/23", "24": "01/24" };
 let BYID = {};
 let S = load();         // progrés desat
 let view = { name: "home" };
@@ -41,7 +44,13 @@ function load() {
 }
 function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
 function saveQuiz() { try { if (quiz && quiz.mode === "exam" && !quiz.done) localStorage.setItem(KEY + "-exam", JSON.stringify(quiz)); else localStorage.removeItem(KEY + "-exam"); } catch (e) {} }
-function loadQuiz() { try { return JSON.parse(localStorage.getItem(KEY + "-exam")); } catch (e) { return null; } }
+function loadQuiz() {
+  try {
+    const q = JSON.parse(localStorage.getItem(KEY + "-exam"));
+    if (q && BYID && Object.keys(BYID).length && q.items.some(it => !BYID[it.id])) return null;   // examen d'una versió antiga
+    return q;
+  } catch (e) { return null; }
+}
 
 /* Registre d'una resposta: [vistes, encerts, errors, ratxa, últimaData] */
 function record(id, ok) {
@@ -61,14 +70,29 @@ function shuffle(a) { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { co
 const fmt = n => n.toLocaleString("ca-ES", { maximumFractionDigits: 2 });
 const pct = (a, b) => b ? Math.round(100 * a / b) : 0;
 function clock(sec) { sec = Math.max(0, Math.round(sec)); const h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60; return (h ? h + ":" + String(m).padStart(2, "0") : m) + ":" + String(s).padStart(2, "0"); }
-function temaNom(t) { if (t === "OF") return "Examen oficial"; const x = DB.temes.find(z => z.id === t); return x ? x.nom : t; }
-function temaLabel(t) { if (t === "OF") return "Examen oficial"; return (t[0] === "G" ? "General " : "Específic ") + t.slice(1); }
+function temaNom(t) { if (!t) return ""; if (t === "OF") return "Examen oficial"; const x = DB.temes.find(z => z.id === t); return x ? x.nom : t; }
+function temaLabel(t) { if (!t) return "Sense tema"; if (t === "OF") return "Examen oficial"; return (t[0] === "G" ? "General " : "Específic ") + t.slice(1); }
 
-function topicStats(tid) {
-  const qs = DB.preguntes.filter(q => q.t === tid);
+function pool(origen) { return origen === "oficials" ? OFQ : origen === "meves" ? DB.preguntes : ALLQ; }
+function topicStats(tid, origen) {
+  const qs = pool(origen || "totes").filter(q => q.t === tid);
   let seen = 0, ok = 0, tot = 0, mastered = 0;
   for (const q of qs) { const r = S.q[q.id]; if (r) { seen++; ok += r[1]; tot += r[0]; if (r[3] >= 1 && r[1] > r[2]) mastered++; } }
   return { n: qs.length, seen, acc: pct(ok, tot), mastered, dom: pct(mastered, qs.length) };
+}
+
+/* Migració: unifica els identificadors antics de les preguntes oficials del 2020 */
+function migrate(alias) {
+  let ch = false;
+  for (const [a, b] of Object.entries(alias)) {
+    const r = S.q[a]; if (!r) continue;
+    const t = S.q[b] || [0, 0, 0, 0, 0];
+    S.q[b] = [t[0] + r[0], t[1] + r[1], t[2] + r[2], Math.max(t[3], r[3]), Math.max(t[4], r[4])];
+    delete S.q[a]; ch = true;
+  }
+  const err = [...new Set(S.err.map(id => alias[id] || id))]; if (err.length !== S.err.length || err.some((x, i) => x !== S.err[i])) { S.err = err; ch = true; }
+  S.exams.forEach(e => { if (e.of === "O20L") { e.of = "O20LA"; ch = true; } else if (e.of === "O20P") { e.of = "O20PA"; ch = true; } });
+  if (ch) save();
 }
 
 /* ---------------- Construcció de sessions ---------------- */
@@ -86,12 +110,13 @@ function buildExam() {
   return { mode: "exam", title: "Simulacre d'examen", items: shuffle(pick).map(makeItem), i: 0, start: Date.now(), limit: EXAM.minutes * 60, done: false };
 }
 
+function exTitle(ex) { return ex.nom + (ex.torn.includes("promoció") ? " · promoció interna" : "") + " · Model " + ex.model; }
 function buildOfficial(ex) {
-  return { mode: "exam", oficial: ex.id, title: ex.nom + " · " + ex.torn, items: ex.ordre.map(id => ({ id, ord: [0, 1, 2, 3], a: null, flag: false })), i: 0, start: Date.now(), limit: ex.min * 60, done: false };
+  return { mode: "exam", oficial: ex.id, title: exTitle(ex), items: ex.ordre.map(id => ({ id, ord: [0, 1, 2, 3], a: null, flag: false })), i: 0, start: Date.now(), limit: ex.min * 60, done: false };
 }
 
-function buildPractice(temes, n, filtre) {
-  let pool = DB.preguntes.filter(q => temes.includes(q.t));
+function buildPractice(temes, n, filtre, origen) {
+  let pool = (origen === "oficials" ? OFQ : origen === "meves" ? DB.preguntes : ALLQ).filter(q => temes.includes(q.t));
   if (filtre === "noves") pool = pool.filter(q => !S.q[q.id]);
   if (filtre === "fluixes") pool = pool.filter(q => { const r = S.q[q.id]; return r && r[2] > 0; });
   // prioritza les menys vistes
@@ -154,19 +179,19 @@ const CONTOUR = `<svg class="contour" viewBox="0 0 400 200" preserveAspectRatio=
 
 function vHome() {
   const seen = Object.keys(S.q).filter(id => BYID[id]).length;
-  const total = DB.preguntes.length;
+  const total = ALLQ.length;
   const pending = loadQuiz();
   const last = S.exams[S.exams.length - 1];
   return `
   <header class="mast">${CONTOUR}<div class="wrap">
     <h1>Test<br>Agents Rurals</h1>
-    <p>${total.toLocaleString("ca-ES")} preguntes dels 25 temes de la guia d'estudi oficial.</p>
+    <p>${total.toLocaleString("ca-ES")} preguntes dels 25 temes, ${OFQ.length} d'exàmens oficials.</p>
   </div></header>
   <main class="wrap">
     <div class="modes">
       ${pending ? `<button class="mode primary" data-act="resume"><h3>Continuar el simulacre</h3><p>Pregunta ${pending.i + 1} de ${pending.items.length} · queden ${clock(pending.limit - (Date.now() - pending.start) / 1000)}</p><span class="side">▶</span></button>` : ""}
       <button class="mode ${pending ? "" : "primary"}" data-act="exam"><h3>Simulacre d'examen</h3><p>80 preguntes · 1 h 45 min · cada error resta ¼</p><span class="side">${last ? `${fmt(last.nota)}<small>última nota</small>` : ""}</span></button>
-      ${OF.length ? `<button class="mode" data-go="oficials"><h3>Exàmens oficials</h3><p>Preguntes reals de convocatòries anteriors, amb la plantilla oficial</p><span class="side">${OF.length}</span></button>` : ""}
+      ${OF.length ? `<button class="mode" data-go="oficials"><h3>Exàmens oficials</h3><p>Les preguntes reals de ${new Set(OF.map(e => e.conv)).size} convocatòries, amb la plantilla oficial</p><span class="side">${OF.length}</span></button>` : ""}
       <button class="mode dif" data-go="dif"><h3>Preguntes per dificultat</h3><p>Barreja de tots els temes, del nivell que triïs</p><span class="side">${"●".repeat(3)}</span></button>
       <button class="mode" data-go="temes"><h3>Practicar per temes</h3><p>Tria temes i veu la resposta correcta a l'instant</p><span class="side">${pct(seen, total)}%</span></button>
       <button class="mode" data-act="errors" ${S.err.length ? "" : "disabled"}><h3>Repassar errors</h3><p>${S.err.length ? "Cada pregunta surt de la llista quan l'encertes dues vegades seguides" : "Aquí apareixeran les preguntes que fallis"}</p><span class="side">${S.err.length}</span></button>
@@ -179,17 +204,28 @@ function vHome() {
   </main>`;
 }
 
+function ofLabel(id) { const ex = OF.find(x => oldIds(x).includes(id)); return ex ? CONV[ex.conv] + (ex.torn.includes("promoció") ? " PI" : "") + " " + ex.model : id; }
+function oldIds(ex) { return ex.id === "O20LA" ? ["O20LA", "O20L"] : ex.id === "O20PA" ? ["O20PA", "O20P"] : [ex.id]; }
 function vOficials() {
-  const list = OF.map(ex => {
-    const done = S.exams.filter(e => e.of === ex.id), best = done.length ? Math.max(...done.map(e => e.nota)) : null;
-    return `<button class="mode" data-official="${ex.id}"><h3>${esc(ex.nom)} · ${esc(ex.torn)}</h3>
-      <p>${ex.ordre.length} preguntes · ${ex.min} min · ${done.length ? `fet ${done.length} ${done.length === 1 ? "vegada" : "vegades"}, millor nota ${fmt(best)}` : "encara no l'has fet"}</p>
-      <span class="side">${ex.any}</span></button>`;
+  const groups = [];
+  OF.forEach(ex => { const k = ex.conv + "|" + ex.torn; let g = groups.find(x => x.k === k); if (!g) groups.push(g = { k, conv: ex.conv, torn: ex.torn, any: ex.any, ex: [] }); g.ex.push(ex); });
+  groups.sort((a, b) => b.any - a.any || (a.torn.includes("promoció") ? 1 : -1));
+  const html = groups.map(g => {
+    const n = new Set(g.ex.flatMap(e => e.ordre)).size;
+    const cards = g.ex.map(ex => {
+      const done = S.exams.filter(e => oldIds(ex).includes(e.of)), best = done.length ? Math.max(...done.map(e => e.nota)) : null;
+      return `<button class="mode" data-official="${ex.id}"><h3>Model ${ex.model}</h3>
+        <p>${ex.ordre.length} preguntes · ${ex.min} min · ${done.length ? `fet ${done.length} ${done.length === 1 ? "vegada" : "vegades"}, millor nota ${fmt(best)}` : "encara no l'has fet"}</p>
+        <span class="side">${best !== null ? fmt(best) : ""}</span></button>`;
+    }).join("");
+    return `<h2 style="margin-top:28px">${esc(g.torn.includes("promoció") ? "Promoció interna" : "Lliure accés")} · ${CONV[g.conv]}</h2>
+      ${g.ex.length > 1 ? `<p class="muted small" style="margin:0 0 10px">Els models ${g.ex.map(e => e.model).join(", ")} tenen les mateixes preguntes en un altre ordre: cada model et dóna un examen nou en ordre, però no en preguntes.</p>` : ""}
+      <div class="modes" style="margin-top:8px">${cards}</div>`;
   }).join("");
   return `${bar("Exàmens oficials")}<main class="wrap">
-    <p class="muted" style="margin-top:20px">Són els qüestionaris reals, en l'ordre original i amb la correcció de la plantilla oficial. Es puntuen igual que el simulacre: sobre 22, i cada error resta ¼.</p>
-    <div class="modes" style="margin-top:16px">${list}</div>
-    <div class="note">Aquests exàmens són del 2020. Algunes preguntes es basen en normativa que després ha canviat (per exemple, l'estructura dels departaments). L'explicació de cada pregunta ho indica quan és el cas.</div>
+    <p class="muted" style="margin-top:20px">Són els qüestionaris reals, en l'ordre original i amb la correcció de la plantilla oficial. Es puntuen com el simulacre: sobre 22, i cada error resta ¼. Les preguntes anul·lades pel tribunal se substitueixen per les de reserva, com a l'examen real.</p>
+    ${html}
+    <div class="note">Algunes preguntes es basen en normativa que després ha canviat. L'explicació ho indica quan és el cas. Totes les preguntes oficials també són a «Practicar per temes».</div>
   </main>`;
 }
 
@@ -209,21 +245,23 @@ function vDif() {
 }
 
 function vTemes() {
-  const sel = new Set(S.sel);
+  const sel = new Set(S.sel), origen = S.cfg.origen || "totes";
   const groups = ["General", "Específic"].map(g => {
     const ts = DB.temes.filter(t => t.grup === g);
     return `<div class="group-head"><h3>Temari ${g.toLowerCase()}</h3><button class="linkbtn" data-all="${g}">${ts.every(t => sel.has(t.id)) ? "Desmarcar tots" : "Marcar tots"}</button></div>
-    <div class="topics">${ts.map(t => { const st = topicStats(t.id); return `
+    <div class="topics">${ts.map(t => { const st = topicStats(t.id, origen), no = topicStats(t.id, "oficials").n, nm = topicStats(t.id, "meves").n; return `
       <button class="topic" data-topic="${t.id}" aria-pressed="${sel.has(t.id)}">
-        <span class="code">${t.id}</span><span class="name">${esc(t.nom)}</span>
-        <span class="pct">${st.seen ? st.acc + "% encert" : t.n + " preg."}</span>
+        <span class="code">${t.id}</span><span class="name">${esc(t.nom)}<small>${no} oficials · ${nm} generades</small></span>
+        <span class="pct">${st.seen ? st.acc + "% encert" : st.n + " preg."}</span>
         <span class="meter" title="Domini ${st.dom}%"><i style="width:${st.dom}%"></i></span>
       </button>`; }).join("")}</div>`;
   }).join("");
-  const n = DB.preguntes.filter(q => sel.has(q.t)).length;
+  const n = pool(origen).filter(q => sel.has(q.t)).length;
   return `${bar("Practicar per temes")}
   <main class="wrap">
     <p class="muted small" style="margin-top:16px">La barra verda indica quantes preguntes del tema domines.</p>
+    <div class="field"><span>Origen de les preguntes</span><div class="seg" data-cfg="origen">
+      ${[["totes", "Totes"], ["oficials", "Oficials (exàmens reals)"], ["meves", "Generades"]].map(([k, l]) => `<button data-v="${k}" aria-pressed="${origen === k}">${l}</button>`).join("")}</div></div>
     ${groups}
     <div class="field"><span>Nombre de preguntes</span><div class="seg" data-cfg="n">
       ${[10, 20, 40, "tot"].map(x => `<button data-v="${x}" aria-pressed="${S.cfg.n == x}">${x === "tot" ? "Totes" : x}</button>`).join("")}</div></div>
@@ -266,7 +304,7 @@ function vQuiz() {
   }
   return `${quiz.dif !== undefined ? '<div class="dif-theme">' : "<div>"}${bar(quiz.title, right)}<div class="progress"><i style="width:${pct(exam ? done : quiz.i + (answered ? 1 : 0), quiz.items.length)}%"></i></div>
   <main class="wrap">
-    <p class="q-meta">${exam ? `Pregunta ${quiz.i + 1} de ${quiz.items.length}` : `${temaLabel(q.t)} · ${esc(temaNom(q.t))}${quiz.dif !== undefined && q.d ? ` · <span class="dtag d${q.d}">${NIVELLS[q.d - 1].nom}</span>` : ""}`}</p>
+    <p class="q-meta">${exam ? `Pregunta ${quiz.i + 1} de ${quiz.items.length}` : `${temaLabel(q.t)} · ${esc(temaNom(q.t))}${quiz.dif !== undefined && q.d ? ` · <span class="dtag d${q.d}">${NIVELLS[q.d - 1].nom}</span>` : ""}${q.of ? ` · <span class="oftag">Oficial ${CONV[q.of]}</span>` : ""}`}</p>
     <p class="q-text">${esc(q.p)}</p>
     <ol class="opts">${opts}</ol>
     ${explain}${nav}
@@ -335,7 +373,7 @@ function vStats() {
   const sorted = DB.temes.map(t => ({ t, st: topicStats(t.id) })).filter(x => x.st.seen >= 5).sort((a, b) => a.st.acc - b.st.acc).slice(0, 3);
   return `${bar("Estadístiques")}<main class="wrap">
     <div class="kpis">
-      <div class="kpi"><b>${ids.length}</b><span>de ${DB.preguntes.length} preguntes vistes</span></div>
+      <div class="kpi"><b>${ids.length}</b><span>de ${ALLQ.length} preguntes vistes</span></div>
       <div class="kpi"><b>${tot ? pct(ok, tot) + "%" : "—"}</b><span>d'encert global</span></div>
       <div class="kpi"><b>${ex.length}</b><span>simulacres fets</span></div>
       <div class="kpi"><b>${best !== null ? fmt(best) : "—"}</b><span>millor nota (de 22)</span></div>
@@ -343,7 +381,7 @@ function vStats() {
     ${sorted.length ? `<div class="note"><b>Temes més fluixos:</b> ${sorted.map(x => `${x.t.id} (${x.st.acc}%)`).join(", ")}. Toca un tema de la llista per practicar-lo.</div>` : ""}
     ${ex.length ? `<h2>Evolució dels simulacres</h2>${chart(ex)}
     <table class="hist"><thead><tr><th>Data</th><th>Nota</th><th>A / E / B</th><th>Temps</th></tr></thead><tbody>
-    ${ex.slice().reverse().slice(0, 15).map(e => `<tr><td>${new Date(e.d).toLocaleDateString("ca-ES", { day: "numeric", month: "short" })}${e.of ? `<br><span class="small muted">oficial ${e.of === "O20L" ? "2020 lliure" : "2020 PI"}</span>` : ""}</td><td class="${e.nota >= EXAM.pass ? "pass" : "fail"}">${fmt(e.nota)}</td><td>${e.A} / ${e.E} / ${e.B}</td><td>${clock(e.t)}</td></tr>`).join("")}</tbody></table>` : ""}
+    ${ex.slice().reverse().slice(0, 15).map(e => `<tr><td>${new Date(e.d).toLocaleDateString("ca-ES", { day: "numeric", month: "short" })}${e.of ? `<br><span class="small muted">oficial ${ofLabel(e.of)}</span>` : ""}</td><td class="${e.nota >= EXAM.pass ? "pass" : "fail"}">${fmt(e.nota)}</td><td>${e.A} / ${e.E} / ${e.B}</td><td>${clock(e.t)}</td></tr>`).join("")}</tbody></table>` : ""}
     <h2>Domini per tema</h2>
     <p class="muted small">Percentatge d'encert, preguntes vistes i barra de domini. Toca un tema per practicar-lo.</p>
     <div class="topics">${rows}</div>
@@ -391,7 +429,7 @@ function bind(root) {
     startQuiz(buildOfficial(OF.find(x => x.id === b.dataset.official)));
   });
   root.querySelectorAll("[data-dif]").forEach(b => b.onclick = () => startQuiz(buildDif(+b.dataset.dif, S.cfg.n)));
-  root.querySelectorAll("[data-practice]").forEach(b => b.onclick = () => startQuiz(buildPractice([b.dataset.practice], S.cfg.n, "tot")));
+  root.querySelectorAll("[data-practice]").forEach(b => b.onclick = () => startQuiz(buildPractice([b.dataset.practice], S.cfg.n, "tot", "totes")));
   root.querySelectorAll("[data-opt]").forEach(b => b.onclick = () => answer(+b.dataset.opt));
   root.querySelectorAll("[data-jump]").forEach(b => b.onclick = () => { quiz.i = +b.dataset.jump; saveQuiz(); render(); window.scrollTo(0, 0); });
   root.querySelectorAll("[data-review]").forEach(b => b.onclick = () => {
@@ -421,8 +459,8 @@ function act(a) {
       if (loadQuiz() && !confirm("Tens un simulacre a mitges. Vols descartar-lo i començar-ne un de nou?")) return;
       startQuiz(buildExam()); break;
     case "resume": quiz = loadQuiz(); go("quiz"); break;
-    case "practice": startQuiz(buildPractice(S.sel, S.cfg.n, S.cfg.filtre)); break;
-    case "again": if (quiz.dif !== undefined) { startQuiz(buildDif(quiz.dif, quiz.items.length)); break; } startQuiz(buildPractice([...new Set(quiz.items.map(x => BYID[x.id].t))], quiz.items.length, "tot")); break;
+    case "practice": startQuiz(buildPractice(S.sel, S.cfg.n, S.cfg.filtre, S.cfg.origen || "totes")); break;
+    case "again": if (quiz.dif !== undefined) { startQuiz(buildDif(quiz.dif, quiz.items.length)); break; } startQuiz(buildPractice([...new Set(quiz.items.map(x => BYID[x.id].t))], quiz.items.length, "tot", S.cfg.origen || "totes")); break;
     case "errors": startQuiz(buildErrors()); break;
     case "next": quiz.i = Math.min(quiz.i + 1, quiz.items.length - 1); saveQuiz(); render(); window.scrollTo(0, 0); break;
     case "prev": quiz.i = Math.max(quiz.i - 1, 0); saveQuiz(); render(); window.scrollTo(0, 0); break;
@@ -480,7 +518,11 @@ document.addEventListener("keydown", e => {
     fetch("data/oficials.json").then(r => r.json()).catch(() => ({ examens: [] }))
   ]).then(([d, of]) => {
     DB = d; d.preguntes.forEach(q => BYID[q.id] = q);
-    OF = of.examens || []; OF.forEach(ex => ex.preguntes.forEach(q => BYID[q.id] = q));
+    OF = of.examens || [];
+    (of.preguntes || []).forEach(q => { q.s = "Examen oficial " + CONV[q.of]; BYID[q.id] = q; });
+    OFQ = (of.preguntes || []).filter(q => !q.anul && q.t && q.c !== null && q.c !== undefined);
+    ALLQ = DB.preguntes.concat(OFQ);
+    migrate(of.alias || {});
     if (!S.sel.length) S.sel = d.temes.map(t => t.id);
     render();
   }).catch(() => { $("#app").innerHTML = `<p class="loading">No s'han pogut carregar les preguntes. Comprova la connexió i torna-ho a provar.</p>`; });
